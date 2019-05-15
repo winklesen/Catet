@@ -4,41 +4,51 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.provider.BaseColumns;
 
-class DatabaseContract {
-//    Content provider
-//    Author berupa package name
+public final class DatabaseContract {
+
+    // Authority yang digunakan
     public static final String AUTHORITY = "com.samuelbernard147.mynotesapp";
     private static final String SCHEME = "content";
 
-    public DatabaseContract() {
-    }
+    //
+    private DatabaseContract(){}
 
-    static final class NoteColumns implements BaseColumns {
-        static final String TABLE_NAME = "note";
-        //Note title
-        static final String TITLE = "title";
-        //Note description
-        static final String DESCRIPTION = "description";
-        //Note date
-        static final String DATE = "date";
+    /*
+    Penggunaan Base Columns akan memudahkan dalam penggunaan suatu table
+    Untuk id yang autoincrement sudah default ada di dalam kelas BaseColumns dengan nama field _ID
+     */
+    public static final class NoteColumns implements BaseColumns {
+        // Note table name
+        public static final String TABLE_NAME = "note";
 
+        // Note title
+        public static final String TITLE = "title";
+        // Note description
+        public static final String DESCRIPTION = "description";
+        // Note date
+        public static final String DATE = "date";
+
+        // Base content yang digunakan untuk akses content provider
         public static final Uri CONTENT_URI = new Uri.Builder().scheme(SCHEME)
                 .authority(AUTHORITY)
                 .appendPath(TABLE_NAME)
                 .build();
+
     }
 
-
-//    Content provider
-    public static String getColumnString(Cursor cursor, String columnName){
+    /*
+    Digunakan untuk mempermudah akses data di dalam cursor dengan parameter nama column
+    */
+    public static String getColumnString(Cursor cursor, String columnName) {
         return cursor.getString(cursor.getColumnIndex(columnName));
     }
 
-    public static int getColumnInt(Cursor cursor, String columnName){
+    public static int getColumnInt(Cursor cursor, String columnName) {
         return cursor.getInt(cursor.getColumnIndex(columnName));
     }
 
-    public static long getColumnLong(Cursor cursor, String columnName){
+    public static long getColumnLong(Cursor cursor, String columnName) {
         return cursor.getLong(cursor.getColumnIndex(columnName));
     }
+
 }

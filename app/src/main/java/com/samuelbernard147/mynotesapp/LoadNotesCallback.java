@@ -1,13 +1,10 @@
 package com.samuelbernard147.mynotesapp;
 
-import com.samuelbernard147.mynotesapp.entity.Note;
+import android.database.Cursor;
 
-import java.util.ArrayList;
-
-
-public interface LoadNotesCallback {
+interface LoadNotesCallback {
     void preExecute();
 
-    void postExecute(ArrayList<Note> notes);
+    void postExecute(Cursor notes);
 }
 

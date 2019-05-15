@@ -1,8 +1,13 @@
 package com.samuelbernard147.mynotesapp;
 
+import android.content.Context;
 import android.content.Intent;
+import android.database.ContentObserver;
+import android.database.Cursor;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.HandlerThread;
 import android.support.design.widget.FloatingActionButton;
 import android.support.design.widget.Snackbar;
 import android.support.v7.app.AppCompatActivity;
@@ -12,22 +17,26 @@ import android.view.View;
 import android.widget.ProgressBar;
 
 import com.samuelbernard147.mynotesapp.adapter.NoteAdapter;
-import com.samuelbernard147.mynotesapp.db.NoteHelper;
 import com.samuelbernard147.mynotesapp.entity.Note;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 
-import static com.samuelbernard147.mynotesapp.NoteAddUpdateActivity.REQUEST_UPDATE;
+import static com.samuelbernard147.mynotesapp.db.DatabaseContract.NoteColumns.CONTENT_URI;
+import static com.samuelbernard147.mynotesapp.helper.MappingHelper.mapCursorToArrayList;
 
 
-public class MainActivity extends AppCompatActivity implements View.OnClickListener, LoadNotesCallback {
+public class MainActivity extends AppCompatActivity
+        implements View.OnClickListener, LoadNotesCallback {
     private RecyclerView rvNotes;
     private ProgressBar progressBar;
-    private FloatingActionButton fabAdd;
-    private static final String EXTRA_STATE = "EXTRA_STATE";
+
     private NoteAdapter adapter;
-    private NoteHelper noteHelper;
+    private static final String EXTRA_STATE = "EXTRA_STATE";
+
+    private static HandlerThread handlerThread;
+    private DataObserver myObserver;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -41,52 +50,48 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         rvNotes.setLayoutManager(new LinearLayoutManager(this));
         rvNotes.setHasFixedSize(true);
 
-        noteHelper = NoteHelper.getInstance(getApplicationContext());
-
-        noteHelper.open();
-
         progressBar = findViewById(R.id.progressbar);
-        fabAdd = findViewById(R.id.fab_add);
+
+        handlerThread = new HandlerThread("DataObserver");
+        handlerThread.start();
+        Handler handler = new Handler(handlerThread.getLooper());
+        myObserver = new DataObserver(handler, this);
+        getContentResolver().registerContentObserver(CONTENT_URI, true, myObserver);
+
+        FloatingActionButton fabAdd = findViewById(R.id.fab_add);
         fabAdd.setOnClickListener(this);
 
         adapter = new NoteAdapter(this);
         rvNotes.setAdapter(adapter);
 
-        /*
-        Cek jika savedInstaceState null makan akan melakukan proses asynctask nya
-        jika tidak,akan mengambil arraylist nya dari yang sudah di simpan
-         */
         if (savedInstanceState == null) {
-            new LoadNotesAsync(noteHelper, this).execute();
+            new LoadNoteAsync(this, this).execute();
         } else {
             ArrayList<Note> list = savedInstanceState.getParcelableArrayList(EXTRA_STATE);
             if (list != null) {
                 adapter.setListNotes(list);
             }
-
         }
+
     }
 
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
         outState.putParcelableArrayList(EXTRA_STATE, adapter.getListNotes());
+
     }
 
     @Override
     public void onClick(View view) {
         if (view.getId() == R.id.fab_add) {
-            Intent intent = new Intent(MainActivity.this, NoteAddUpdateActivity.class);
-            startActivityForResult(intent, NoteAddUpdateActivity.REQUEST_ADD);
+            Intent intent = new Intent(MainActivity.this, FormAddUpdateActivity.class);
+            startActivityForResult(intent, FormAddUpdateActivity.REQUEST_ADD);
         }
     }
 
     @Override
     public void preExecute() {
-        /*
-        Callback yang akan dipanggil di onPreExecute Asyntask
-        Memunculkan progressbar
-        */
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
@@ -96,22 +101,25 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     }
 
     @Override
-    public void postExecute(ArrayList<Note> notes) {
-        /*
-        Callback yang akan dipanggil di onPostExture Asynctask
-        Menyembunyikan progressbar, kemudian isi adapter dengan data yang ada
-         */
+    public void postExecute(Cursor notes) {
         progressBar.setVisibility(View.INVISIBLE);
-        adapter.setListNotes(notes);
+
+        ArrayList<Note> listNotes = mapCursorToArrayList(notes);
+        if (listNotes.size() > 0) {
+            adapter.setListNotes(listNotes);
+        } else {
+            adapter.setListNotes(new ArrayList<Note>());
+            showSnackbarMessage("Tidak ada data saat ini");
+        }
     }
 
-    private static class LoadNotesAsync extends AsyncTask<Void, Void, ArrayList<Note>> {
+    private static class LoadNoteAsync extends AsyncTask<Void, Void, Cursor> {
 
-        private final WeakReference<NoteHelper> weakNoteHelper;
+        private final WeakReference<Context> weakContext;
         private final WeakReference<LoadNotesCallback> weakCallback;
 
-        private LoadNotesAsync(NoteHelper noteHelper, LoadNotesCallback callback) {
-            weakNoteHelper = new WeakReference<>(noteHelper);
+        private LoadNoteAsync(Context context, LoadNotesCallback callback) {
+            weakContext = new WeakReference<>(context);
             weakCallback = new WeakReference<>(callback);
         }
 
@@ -122,71 +130,16 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         }
 
         @Override
-        protected ArrayList<Note> doInBackground(Void... voids) {
-
-            return weakNoteHelper.get().getAllNotes();
+        protected Cursor doInBackground(Void... voids) {
+            Context context = weakContext.get();
+            return context.getContentResolver().query(CONTENT_URI, null, null, null, null);
         }
 
         @Override
-        protected void onPostExecute(ArrayList<Note> notes) {
+        protected void onPostExecute(Cursor notes) {
             super.onPostExecute(notes);
-
             weakCallback.get().postExecute(notes);
-
         }
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-
-        if (data != null) {
-            // Akan dipanggil jika request codenya ADD
-            if (requestCode == NoteAddUpdateActivity.REQUEST_ADD) {
-                if (resultCode == NoteAddUpdateActivity.RESULT_ADD) {
-                    Note note = data.getParcelableExtra(NoteAddUpdateActivity.EXTRA_NOTE);
-
-                    adapter.addItem(note);
-                    rvNotes.smoothScrollToPosition(adapter.getItemCount() - 1);
-
-                    showSnackbarMessage("Satu item berhasil ditambahkan");
-                }
-            }
-            // Update dan Delete memiliki request code sama akan tetapi result codenya berbeda
-            else if (requestCode == REQUEST_UPDATE) {
-                /*
-                Akan dipanggil jika result codenya  UPDATE
-                Semua data di load kembali dari awal
-                */
-                if (resultCode == NoteAddUpdateActivity.RESULT_UPDATE) {
-
-                    Note note = data.getParcelableExtra(NoteAddUpdateActivity.EXTRA_NOTE);
-                    int position = data.getIntExtra(NoteAddUpdateActivity.EXTRA_POSITION, 0);
-
-                    adapter.updateItem(position, note);
-                    rvNotes.smoothScrollToPosition(position);
-
-                    showSnackbarMessage("Satu item berhasil diubah");
-                }
-                /*
-                Akan dipanggil jika result codenya DELETE
-                Delete akan menghapus data dari list berdasarkan dari position
-                */
-                else if (resultCode == NoteAddUpdateActivity.RESULT_DELETE) {
-                    int position = data.getIntExtra(NoteAddUpdateActivity.EXTRA_POSITION, 0);
-
-                    adapter.removeItem(position);
-
-                    showSnackbarMessage("Satu item berhasil dihapus");
-                }
-            }
-        }
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        noteHelper.close();
     }
 
     /**
@@ -196,5 +149,22 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
      */
     private void showSnackbarMessage(String message) {
         Snackbar.make(rvNotes, message, Snackbar.LENGTH_SHORT).show();
+    }
+
+    public static class DataObserver extends ContentObserver {
+
+        final Context context;
+
+        public DataObserver(Handler handler, Context context) {
+            super(handler);
+            this.context = context;
+        }
+
+        @Override
+        public void onChange(boolean selfChange) {
+            super.onChange(selfChange);
+            new LoadNoteAsync(context, (LoadNotesCallback) context).execute();
+
+        }
     }
 }
